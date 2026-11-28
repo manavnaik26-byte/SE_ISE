@@ -1,160 +1,385 @@
 
-import React, { Component, useContext, useEffect, useState } from 'react'
+import React, { useContext, useEffect, useState } from 'react';
 import bookmarkContext from '../context/Bookmark/bookmarkContext';
-import '../newsitem.css'
 import profileContext from '../context/Profile/profileContext';
+import '../newsitem.css';
 
+const NewsItem = (props) => {
 
-const NewsItem = (props)=>{
-  const { title, description, imageUrl, newsUrl, author, date, source, category,backendurl } = props;
+    const {
+        title,
+        description,
+        imageUrl,
+        newsUrl,
+        author,
+        date,
+        source,
+        category,
+        backendurl
+    } = props;
 
-  const { user } = useContext(profileContext);
-  const { getUser } = useContext(profileContext);
+    const { user, getUser } = useContext(profileContext);
 
-  // let realTitle = element.title == null ? "No Title" : element.title
-  let Title = title.length >= 45 ? title.slice(0, 45) + '...' : title
-  // let realDescription = element.description == null ? "No Description" : element.description
-  let Description = description.length >= 88 ? description.slice(0, 88) + '...' : description
+    const {
+        bookmarks,
+        removeBookmark,
+        addBookmark
+    } = useContext(bookmarkContext);
 
-  let Author=author?.length>=50 ? author.slice(0,50) + '...' : author
+    const [bookmarkChecked, setBookmarkChecked] = useState(false);
 
-  const [bookmarkChecked, setbookmarkChecked] = useState()
-  const { bookmarks, removeBookmark, addBookmark } = useContext(bookmarkContext)
-  const shareNews = (title, text, url) => {
-    if (navigator.share) {
-      navigator.share({
-        title: title,
-        text: text,
-        url: url
-      })
-        .then(() => { })
-        .catch((error) => alert("Failed to share."))
-    } else {
-      alert("Sharing is not supported on this browser.")
-    }
-  }
-  const saveToHistory = async (e) => {
+    // Limit title and description length
+    const Title = title
+        ? title.length >= 45
+            ? title.slice(0, 45) + '...'
+            : title
+        : 'No Title';
+
+    const Description = description
+        ? description.length >= 88
+            ? description.slice(0, 88) + '...'
+            : description
+        : 'No Description';
+
+    const Author = author
+        ? author.length >= 50
+            ? author.slice(0, 50) + '...'
+            : author
+        : 'Unknown';
+
+    const Source = source
+        ? source.length >= 20
+            ? source.slice(0, 20) + '...'
+            : source
+        : 'Unknown Source';
+
+    const defaultImage = '/assets/images/logo.png';
+
+    const validImageUrl = imageUrl || defaultImage;
+
+    // ==========================================
+    // SAVE RECENTLY VIEWED NEWS
+    // ==========================================
+
+    const saveToHistory = async (e) => {
 
     e.preventDefault();
 
-    if (!user?._id) return;
-    console.log("Token:", localStorage.getItem("token"));
+    console.log("1. READ MORE CLICKED");
+    console.log("2. ARTICLE URL:", newsUrl);
+    console.log("3. CURRENT USER:", user?._id);
+
+    if (!user?._id) {
+        console.error("User not logged in. History not saved.");
+        window.open(newsUrl, '_blank', 'noopener,noreferrer');
+        return;
+    }
 
     const historyKey = `history_${user._id}`;
-    // OR: history_${user.username}
-    const existing = JSON.parse(localStorage.getItem(historyKey)) || [];
 
-    const alreadyRead = existing.some(h => h.url === newsUrl);
+    let existing = [];
 
-    // 🔥 increment only if first time
-    if (!alreadyRead) {
-      await inc_art_read();
+    try {
+        existing = JSON.parse(
+            localStorage.getItem(historyKey) || '[]'
+        );
+
+        if (!Array.isArray(existing)) existing = [];
+
+    } catch (error) {
+        console.error("Error reading history:", error);
     }
-    await categoryfav();
-    await updateStreak();
+
+    console.log("4. OLD HISTORY COUNT:", existing.length);
+
+    const alreadyRead = existing.some(
+        article => article.url === newsUrl
+    );
+
+    console.log("5. ALREADY READ:", alreadyRead);
 
     const item = {
-      title,
-      url: newsUrl,
-      image: imageUrl,
-      date: new Date().toISOString(),
+        title: title || 'No Title',
+        url: newsUrl,
+        image: imageUrl || '/assets/images/logo.png',
+        date: new Date().toISOString()
     };
 
-    // add at top (newest first)
-    const filtered = existing.filter(h => h.url !== newsUrl);
+    const filtered = existing.filter(
+        article => article.url !== newsUrl
+    );
+
     filtered.unshift(item);
 
-    localStorage.setItem(historyKey, JSON.stringify(filtered));
+    const recentArticles = filtered.slice(0, 5);
 
-    window.open(newsUrl, "_blank");
-  };
+    try {
 
-  const inc_art_read = async () => {
+        localStorage.setItem(
+            historyKey,
+            JSON.stringify(recentArticles)
+        );
 
-    await fetch(`${backendurl}/api/v1/user/addArticleReadCount`, {
-      method: "PUT",
-      headers: {
-        "auth-token": localStorage.getItem("token"),
-      },
-    });
-  }
+        console.log("6. NEW HISTORY:", recentArticles);
+        console.log("7. TOTAL ARTICLES:", recentArticles.length);
 
-  const categoryfav = async () => {
-    const safeCategory = category || "General";
-    await fetch(`${backendurl}/api/v1/user/read-article`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "auth-token": localStorage.getItem("token")
-      },
-      body: JSON.stringify({
-        category: safeCategory
-      })
-    });
-    console.log("CATEGORY SENT:", safeCategory);
-  }
+        window.dispatchEvent(new Event('historyUpdated'));
 
-  const updateStreak = async () => {
-    await fetch(`${backendurl}/api/v1/user/update-streak`, {
-      method: "PUT",
-      headers: {
-        "auth-token": localStorage.getItem("token")
-      }
-    })
-
-    await getUser();
-  }
-
-  useEffect(() => {
-    const isBookmarked = bookmarks.some(b => b.newsUrl === newsUrl);
-    setbookmarkChecked(isBookmarked);
-  }, [bookmarks, newsUrl])
-  const postBookmark = () => {
-    if (bookmarkChecked) {
-      const bookmark = bookmarks.find(b => b.newsUrl === newsUrl);
-      if (bookmark) removeBookmark(bookmark._id);
-      setbookmarkChecked(false);
-    } else {
-      addBookmark({ title, description, imageUrl, newsUrl, Author, date, source })
-      setbookmarkChecked(true)
+    } catch (error) {
+        console.error("Error saving history:", error);
     }
-  }
+
+    window.open(newsUrl, '_blank', 'noopener,noreferrer');
+
+    try {
+        if (!alreadyRead) {
+            await inc_art_read();
+        }
+
+        await categoryfav();
+        await updateStreak();
+
+    } catch (error) {
+        console.error("Error updating user statistics:", error);
+    }
+};
 
 
-  let Source = source ? (source.length >= 20 ? `${source.slice(0, 20)}...` : source) : 'Unknown Source';
-  const defaultImage = "/assets/images/logo.png";
-  const validImageUrl = imageUrl || defaultImage;
-  return (
-    <div className='newsitem-container my-2 mx-32 shadow-lg' >
-      <div className="card" style={{ height: "100%" }}>
-        <div className="image-wrapper">
-          <img src={validImageUrl} className="card-img-top" alt="No News Image" height="200px" onError={(e) => { e.target.src = process.env.PUBLIC_URL + "/assets/images/logo.png"; }} />
-        </div>
-        <div className="card-body" >
-          <h5 className="card-title" height="20px">{Title}<h5><span class="badge text-bg-secondary">{Source}</span></h5></h5>
-          <p className="card-text" height="50px">{Description}</p>
-          <p className="card-text"><small className="text-body-secondary">By {Author || 'Unknown'} on {new Date(date).toUTCString()}</small></p>
-          <div className="bottom">
+        console.log("READ MORE CLICKED");
+        console.log("CURRENT USER:", user);
+        console.log("ARTICLE URL:", newsUrl);
 
-            <a rel='noreferrer' onClick={saveToHistory} href={newsUrl} target='_blank' className="btn btn-outline-primary">Read More</a>
-            <div className="twobtns">
+    // ==========================================
+    // INCREMENT ARTICLE READ COUNT
+    // ==========================================
 
-              <button className="btn btn-outline-secondary mx-2" onClick={() => shareNews(title, description, newsUrl)}>
-                <i className="bi bi-share"></i>
-              </button>
-              <button className="btn btn-outline-secondary mx-2 float-end " onClick={() => postBookmark(title, description, imageUrl, newsUrl, author, date, source)}>
-                {
-                  bookmarkChecked ? (<i className="bi bi-bookmark-check"></i>) : (<i className="bi bi-bookmark"></i>)
+    const inc_art_read = async () => {
+
+        await fetch(
+            `${backendurl}/api/v1/user/addArticleReadCount`,
+            {
+                method: 'PUT',
+                headers: {
+                    'auth-token': localStorage.getItem('token')
                 }
-              </button>
+            }
+        );
+    };
+
+    // ==========================================
+    // UPDATE FAVORITE CATEGORY
+    // ==========================================
+
+    const categoryfav = async () => {
+
+        const safeCategory = category || 'General';
+
+        await fetch(
+            `${backendurl}/api/v1/user/read-article`,
+            {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'auth-token': localStorage.getItem('token')
+                },
+                body: JSON.stringify({
+                    category: safeCategory
+                })
+            }
+        );
+
+        console.log('CATEGORY SENT:', safeCategory);
+    };
+
+    // ==========================================
+    // UPDATE READING STREAK
+    // ==========================================
+
+    const updateStreak = async () => {
+
+        await fetch(
+            `${backendurl}/api/v1/user/update-streak`,
+            {
+                method: 'PUT',
+                headers: {
+                    'auth-token': localStorage.getItem('token')
+                }
+            }
+        );
+
+        await getUser();
+    };
+
+    // ==========================================
+    // CHECK BOOKMARK STATUS
+    // ==========================================
+
+    useEffect(() => {
+
+        const isBookmarked = bookmarks.some(
+            bookmark => bookmark.newsUrl === newsUrl
+        );
+
+        setBookmarkChecked(isBookmarked);
+
+    }, [bookmarks, newsUrl]);
+
+    // ==========================================
+    // ADD / REMOVE BOOKMARK
+    // ==========================================
+
+    const postBookmark = () => {
+
+        if (bookmarkChecked) {
+
+            const bookmark = bookmarks.find(
+                item => item.newsUrl === newsUrl
+            );
+
+            if (bookmark) {
+                removeBookmark(bookmark._id);
+            }
+
+            setBookmarkChecked(false);
+
+        } else {
+
+            addBookmark({
+                title,
+                description,
+                imageUrl,
+                newsUrl,
+                author: Author,
+                date,
+                source
+            });
+
+            setBookmarkChecked(true);
+        }
+    };
+
+    // ==========================================
+    // SHARE NEWS
+    // ==========================================
+
+    const shareNews = (title, text, url) => {
+
+        if (navigator.share) {
+
+            navigator.share({
+                title: title,
+                text: text,
+                url: url
+            })
+            .catch(() => {
+                alert('Failed to share.');
+            });
+
+        } else {
+
+            alert('Sharing is not supported on this browser.');
+
+        }
+    };
+
+    // ==========================================
+    // RENDER NEWS CARD
+    // ==========================================
+
+    return (
+
+        <div className="newsitem-container my-2 mx-32 shadow-lg">
+
+            <div className="card" style={{ height: '100%' }}>
+
+                <div className="image-wrapper">
+
+                    <img
+                        src={validImageUrl}
+                        className="card-img-top"
+                        alt="News"
+                        height="200px"
+                        onError={(e) => {
+                            e.target.src = defaultImage;
+                        }}
+                    />
+
+                </div>
+
+                <div className="card-body">
+
+                    <h5 className="card-title">
+                        {Title}
+                    </h5>
+
+                    <span className="badge text-bg-secondary">
+                        {Source}
+                    </span>
+
+                    <p className="card-text">
+                        {Description}
+                    </p>
+
+                    <p className="card-text">
+
+                        <small className="text-body-secondary">
+                            By {Author} on {
+                                date
+                                    ? new Date(date).toUTCString()
+                                    : 'Unknown Date'
+                            }
+                        </small>
+
+                    </p>
+
+                    <div className="bottom">
+
+                        <a
+                            rel="noreferrer"
+                            onClick={saveToHistory}
+                            href={newsUrl}
+                            target="_blank"
+                            className="btn btn-outline-primary"
+                        >
+                            Read More
+                        </a>
+
+                        <div className="twobtns">
+
+                            <button
+                                className="btn btn-outline-secondary mx-2"
+                                onClick={() => shareNews(
+                                    title,
+                                    description,
+                                    newsUrl
+                                )}
+                            >
+                                <i className="bi bi-share"></i>
+                            </button>
+
+                            <button
+                                className="btn btn-outline-secondary mx-2 float-end"
+                                onClick={postBookmark}
+                            >
+                                {
+                                    bookmarkChecked
+                                        ? <i className="bi bi-bookmark-check"></i>
+                                        : <i className="bi bi-bookmark"></i>
+                                }
+                            </button>
+
+                        </div>
+
+                    </div>
+
+                </div>
+
             </div>
-          </div>
 
         </div>
-      </div>
-    </div>
-  )
 
-}
+    );
 
-export default NewsItem
+};
+
+export default NewsItem;
